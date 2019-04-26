@@ -12,10 +12,17 @@
 #define M2Kd 0
 #define M2Ki 0
 
+// Define PID gains
+#define Kp 0.04 //0.04
+#define Kd 0.02 //0.02
+#define Ki 0.01 //0.01
+
+
 IqSerial iq2(Serial3);
 IqSerial iq1(Serial2);
 
 MultiTurnAngleControlClient angle(0);
+BrushlessDriveClient mot(0);
 
 // size of image in pizel
 //const int image_pixel_height = 920;
@@ -61,11 +68,9 @@ void setup() {
 
   //linspace the pixel values to motor angles
   linspaceAngle2Pixel();
-  Serial.println("HEELLO");
 }
 
 void loop() {
-//  Serial.println("HEELLO");
   // get the pixel values from serial
   static int x = 0;
   static int y = 0;
@@ -114,6 +119,8 @@ void aimAtPixel(int x, int y)
   float m2_desired_angle = width_linspace_array[x];
 
   setMotorAngles(m1_desired_angle, m2_desired_angle);
+
+//  setMotorAnglesPID(m1_desired_angle, m2_desired_angle);
 }
 
 void linspaceAngle2Pixel()
@@ -157,31 +164,32 @@ void linspace(float lower_lim, float upper_lim, int n, float* linspace_Array)
   
     return;
 }
-void setMotorAngles(float m1_desire_angle, float m2_desire_angle)
+
+
+
+void setMotorAngles(float m1_desired_angle, float m2_desired_angle)
 {
-  if(m1_desire_angle >= m1_upper_limit)
+  if(m1_desired_angle >= m1_upper_limit)
   {
-    m1_desire_angle = m1_upper_limit;
+    m1_desired_angle = m1_upper_limit;
   }
-  if(m1_desire_angle <= m1_lower_limit)
+  if(m1_desired_angle <= m1_lower_limit)
   {
-    m1_desire_angle = m1_lower_limit;
+    m1_desired_angle = m1_lower_limit;
   }
 
 
-  if(m2_desire_angle >= m2_upper_limit)
+  if(m2_desired_angle >= m2_upper_limit)
   {
-    m2_desire_angle = m2_upper_limit;
+    m2_desired_angle = m2_upper_limit;
   }
-  if(m2_desire_angle <= m2_lower_limit)
+  if(m2_desired_angle <= m2_lower_limit)
   {
-    m2_desire_angle = m2_lower_limit;
+    m2_desired_angle = m2_lower_limit;
   }
- 
-  sendTrajectory1(TRAJECTORY_TIME, m1_desire_angle);
-  sendTrajectory2(TRAJECTORY_TIME, m2_desire_angle);
 
-  
+  sendTrajectory(TRAJECTORY_TIME, m1_desired_angle, m2_desired_angle);
+
   uint8_t mode1 = 0;
   uint8_t mode2 = 0;
  
@@ -195,20 +203,78 @@ void setMotorAngles(float m1_desire_angle, float m2_desire_angle)
   return;
 }
 
-void sendTrajectory1(float time_cmd, float angle_cmd)
+void sendTrajectory(float time_cmd, float angle_cmd1, float angle_cmd2)
 {
   // Generate the set messages
-//  iq1.set(angle.ctrl_coast_);
-  iq1.set(angle.trajectory_angular_displacement_,angle_cmd);
+  iq1.set(angle.trajectory_angular_displacement_,angle_cmd1);
   iq1.set(angle.trajectory_duration_,time_cmd);
-//  iq1.set(angle.ctrl_angle_,angle_cmd);
+  iq2.set(angle.trajectory_angular_displacement_,angle_cmd2);
+  iq2.set(angle.trajectory_duration_,time_cmd);
 }
 
-void sendTrajectory2(float time_cmd, float angle_cmd)
+
+
+void setMotorAnglesPID(float m1_desired_angle, float m2_desired_angle)
+{ 
+  float my_angle1 = m1_desired_angle; // in case packet drops
+  float my_angle2 = m2_desired_angle;
+  iq1.get(angle.obs_angular_displacement_, my_angle1);
+  iq2.get(angle.obs_angular_displacement_, my_angle2);
+
+  float error1 = m1_desired_angle - my_angle1;
+  float error2 = m2_desired_angle - my_angle2;
+  
+  float pid_start_time1 = millis();
+  float voltage1 = PID(pid_start_time1, error1);
+  
+  float pid_start_time2 = millis();
+  float voltage2 = PID(pid_start_time2, error2);
+
+  iq1.set(mot.drive_spin_volts_,voltage1);
+  iq2.set(mot.drive_spin_volts_,voltage2);
+}
+
+
+
+float PID(float start_time, float error)
 {
-  // Generate the set messages
-//  iq2.set(angle.ctrl_coast_);
-  iq2.set(angle.trajectory_angular_displacement_,angle_cmd);
-  iq2.set(angle.trajectory_duration_,time_cmd);
-//  iq2.set(angle.ctrl_angle_,angle_cmd);
+  static float error_old = 0.0f;
+  static float Ui_old = 0.0f;
+  static float delta_t = 1;
+  if (error <= 0.1 && error >= -0.1)
+  {
+    Ui_old = 0;
+  }
+  float Ui = Ui_old + Ki*error*delta_t;
+  if (Ui > 0.07)
+  {
+    Ui = 0.07;
+  }
+  if (Ui < -0.07)
+  {
+    Ui = -0.07;
+  }
+  float Ud =  Kd*((error - error_old)/ delta_t);
+  float U = Kp * error + Ud + Ui;
+  Ui_old = Ui;
+  error_old = error;
+
+  float run_time = millis()-start_time;
+  if(run_time < delta_t)
+  {
+    delay(delta_t - run_time);
+  }
+
+  //  Serial.print("U = ");
+//  Serial.println(U);
+//  Serial.print("Ud = ");
+//  Serial.println(Ud);
+//  Serial.print("Ui = ");
+//  Serial.println(Ui);
+//  Serial.print("error = ");
+//  Serial.println(error);
+//  Serial.print("START POS ");
+//  Serial.println(starting_pos);
+
+  return U;
 }
