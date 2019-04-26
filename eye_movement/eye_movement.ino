@@ -3,29 +3,32 @@
 
 // MAKE SURE THAT MOTOR 1 (SERIAL1) CHANGES THE X OF THE EYE
 // AND THAT MOTOR 2 (SERIAL2) CHANGES THE Y OF THE EYE
-#define TRAJECTORY_TIME 0.5
-#define M1Kp 2
+#define TRAJECTORY_TIME 0.05
+#define M1Kp 3
 #define M1Kd 0
 #define M1Ki 0
 
-#define M2Kp 1
+#define M2Kp 3
 #define M2Kd 0
 #define M2Ki 0
 
-IqSerial iq2(Serial2);
-IqSerial iq1(Serial1);
+IqSerial iq2(Serial3);
+IqSerial iq1(Serial2);
 
 MultiTurnAngleControlClient angle(0);
 
 // size of image in pizel
-const int image_pixel_height = 920;
-const int image_pixel_width = 1280;
+//const int image_pixel_height = 920;
+//const int image_pixel_width = 1280;
+
+const int image_pixel_height = 256;
+const int image_pixel_width = 256;
 
 // calibrated angles to border of image
-const float m1_upper_limit = 0.70;
-const float m1_lower_limit = -0.49;
-const float m2_upper_limit = 0.93;
-const float m2_lower_limit = -0.35;
+const float m1_upper_limit = 0.66;
+const float m1_lower_limit = -0.33;
+const float m2_upper_limit = 0.24;
+const float m2_lower_limit = -0.34;
 
 // array of linspaced angles to pixels of image
 float height_linspace_array[image_pixel_height] = {0};
@@ -35,7 +38,7 @@ void setup() {
   pinMode(13, OUTPUT);
   digitalWrite(13, HIGH);
   Serial.begin(115200);
-  delay(100);
+  delay(1000);
   
   iq1.begin(115200);
   iq2.begin(115200);
@@ -43,6 +46,9 @@ void setup() {
   //set the current angle to 0
   iq1.set(angle.obs_angular_displacement_, 0.0f);
   iq2.set(angle.obs_angular_displacement_, 0.0f);
+//
+//  iq1.set(angle.ctrl_angle_, 0.0f);
+//  iq2.set(angle.ctrl_angle_, 0.0f);
 
   // PID values
   iq1.set(angle.angle_Kp_,(float)M1Kp);
@@ -55,14 +61,20 @@ void setup() {
 
   //linspace the pixel values to motor angles
   linspaceAngle2Pixel();
+  Serial.println("HEELLO");
 }
 
 void loop() {
-
+//  Serial.println("HEELLO");
   // get the pixel values from serial
   static int x = 0;
   static int y = 0;
   while(!readPixelValues(x,y));
+  Serial.print("x = ");
+  Serial.print(x);
+  Serial.print(" | y = ");
+  Serial.println(y);
+  
   
   aimAtPixel(x,y); // aims the motor
 
@@ -108,6 +120,23 @@ void linspaceAngle2Pixel()
 {
   linspace(m1_lower_limit, m1_upper_limit, image_pixel_height, &height_linspace_array[0]);
   linspace(m2_lower_limit, m2_upper_limit, image_pixel_width, &width_linspace_array[0]);
+
+//  Serial.print(height_linspace_array[0]);
+//  Serial.print(" | ");
+//  Serial.println(height_linspace_array[image_pixel_height-1]);
+//  Serial.print(width_linspace_array[0]);
+//  Serial.print(" | ");
+//  Serial.println(width_linspace_array[image_pixel_width-1]);
+//  for(int ii = 0; ii < image_pixel_height; ++ii)
+//  {
+//    Serial.println(height_linspace_array[ii]);
+//  }
+//  Serial.println("----------------------------------");
+//  for(int ii = 0; ii < image_pixel_width; ++ii)
+//  {
+//    Serial.println(width_linspace_array[ii]);
+//  }
+//  Serial.println("----------------------------------");
   return;
 }
 
@@ -148,10 +177,20 @@ void setMotorAngles(float m1_desire_angle, float m2_desire_angle)
   {
     m2_desire_angle = m2_lower_limit;
   }
-
+ 
   sendTrajectory1(TRAJECTORY_TIME, m1_desire_angle);
   sendTrajectory2(TRAJECTORY_TIME, m2_desire_angle);
-  delay(1000);
+
+  
+  uint8_t mode1 = 0;
+  uint8_t mode2 = 0;
+ 
+  do
+  {
+    iq1.get(angle.ctrl_mode_, mode1);
+    iq2.get(angle.ctrl_mode_, mode2);
+  }while(mode1 == 4 && mode2 ==4); // Check if the motor is still executing the last trajectory
+
 
   return;
 }
@@ -159,13 +198,17 @@ void setMotorAngles(float m1_desire_angle, float m2_desire_angle)
 void sendTrajectory1(float time_cmd, float angle_cmd)
 {
   // Generate the set messages
+//  iq1.set(angle.ctrl_coast_);
   iq1.set(angle.trajectory_angular_displacement_,angle_cmd);
   iq1.set(angle.trajectory_duration_,time_cmd);
+//  iq1.set(angle.ctrl_angle_,angle_cmd);
 }
 
 void sendTrajectory2(float time_cmd, float angle_cmd)
 {
   // Generate the set messages
+//  iq2.set(angle.ctrl_coast_);
   iq2.set(angle.trajectory_angular_displacement_,angle_cmd);
   iq2.set(angle.trajectory_duration_,time_cmd);
+//  iq2.set(angle.ctrl_angle_,angle_cmd);
 }
